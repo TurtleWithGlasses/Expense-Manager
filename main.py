@@ -1,0 +1,319 @@
+from datetime import date, timedelta
+
+from PySide6.QtCore import Qt, QDate
+from PySide6.QtGui import QFont
+from PySide6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+    QPushButton, QDateEdit, QGridLayout, QInputDialog, QMessageBox, QScrollArea,
+    QComboBox
+)
+
+from db import Database
+from dialogs import (
+    IncomeDialog, ExpenseDialog,
+    CategoryExpensesDialog, IncomesListDialog, ExpensesListDialog, ChartDialog
+)
+from widgets import CategoryCard, StatBox
+
+class Dashboard(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Expense Manager — Dashboard")
+        self.resize(720, 900)
+
+        self.db = Database()
+        self._seed_defaults()
+
+        root = QWidget()
+        self.setCentralWidget(root)
+        outer = QVBoxLayout(root)
+        outer.setSpacing(14)
+
+        # ---- Period quick buttons ----
+        period_row = QHBoxLayout()
+        self.btn_month = QPushButton("Month")
+        self.btn_week = QPushButton("Week")
+        self.btn_day = QPushButton("Day")
+        for b in (self.btn_month, self.btn_week, self.btn_day):
+            b.clicked.connect(self.on_period_click)
+            b.setFixedHeight(36)
+            b.setStyleSheet("border:1px solid #999;border-radius:10px;padding:4px 10px;")
+            period_row.addWidget(b)
+        period_row.addStretch()
+        outer.addLayout(period_row)
+
+        # ---- Date range ----
+        range_row = QHBoxLayout()
+        self.start = QDateEdit(calendarPopup=True)
+        self.end = QDateEdit(calendarPopup=True)
+        for ed in (self.start, self.end):
+            ed.setDisplayFormat("yyyy-MM-dd")
+        range_row.addWidget(QLabel("Start date"))
+        range_row.addWidget(self.start)
+        range_row.addWidget(QLabel(" - End date"))
+        range_row.addWidget(self.end)
+        apply_btn = QPushButton("Apply")
+        apply_btn.clicked.connect(self.refresh)
+        range_row.addWidget(apply_btn)
+        outer.addLayout(range_row)
+
+        # ---- Income / Expense buttons ----
+        money_row = QHBoxLayout()
+        self.btn_income = QPushButton("Income")
+        self.btn_expense = QPushButton("Expense")
+        for w in (self.btn_income, self.btn_expense):
+            w.setFixedHeight(44)
+            w.setStyleSheet("border:2px solid #d33; color:#d33; border-radius:12px; font-weight:700;")
+            money_row.addWidget(w)
+        self.btn_income.clicked.connect(self.add_income)
+        self.btn_expense.clicked.connect(self.add_expense)
+        outer.addLayout(money_row)
+
+        # ---- NEW: Totals boxes (clickable) ----
+        stats_row = QHBoxLayout()
+        self.box_income = StatBox("Total Income", color="#1769aa")
+        self.box_expense = StatBox("Total Expenses", color="#b00020")
+        self.box_income.clicked.connect(self.show_all_incomes)
+        self.box_expense.clicked.connect(self.show_all_expenses)
+        stats_row.addWidget(self.box_income)
+        stats_row.addWidget(self.box_expense)
+        outer.addLayout(stats_row)
+
+        # ---- Balance box ----
+        self.balance_box = QLabel("")
+        self.balance_box.setAlignment(Qt.AlignCenter)
+        self.balance_box.setMinimumHeight(90)
+        f = QFont(); f.setPointSize(15); f.setBold(True)
+        self.balance_box.setFont(f)
+        self.balance_box.setTextFormat(Qt.RichText)
+        outer.addWidget(self.balance_box)
+
+        # ---- Categories row + action buttons ----
+        header_row = QHBoxLayout()
+        title = QLabel("Categories")
+        title.setStyleSheet("font-weight:700;")
+        header_row.addWidget(title)
+        header_row.addStretch()
+        self.btn_add_cat = QPushButton("Add Category")
+        self.btn_edit_cat = QPushButton("Edit Category")
+        for w in (self.btn_add_cat, self.btn_edit_cat):
+            w.setFixedHeight(32)
+            w.setStyleSheet("border:1px solid #999; border-radius:8px; padding:4px 10px; font-weight:600;")
+            header_row.addWidget(w)
+        self.btn_add_cat.clicked.connect(self.add_category)
+        self.btn_edit_cat.clicked.connect(self.edit_category)
+        outer.addLayout(header_row)
+
+        # ---- Scrollable grid of category cards ----
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.cards_host = QWidget()
+        self.grid = QGridLayout(self.cards_host)
+        self.grid.setHorizontalSpacing(12)
+        self.grid.setVerticalSpacing(12)
+        self.scroll.setWidget(self.cards_host)
+        outer.addWidget(self.scroll, 1)
+
+        self.dataset_sel = QComboBox()
+        self.dataset_sel.addItems(["Expenses by Category", "Incomes by Source"])
+        self.btn_pie = QPushButton("Pie")
+        self.btn_bar = QPushButton("Bars")
+        self.btn_pie.clicked.connect(self.open_pie_chart)
+        self.btn_bar.clicked.connect(self.open_bar_chart)
+
+        header_row.addSpacing(8)
+        header_row.addWidget(QLabel("Chart:"))
+        header_row.addWidget(self.dataset_sel)
+        header_row.addWidget(self.btn_pie)
+        header_row.addWidget(self.btn_bar)
+
+        # Defaults and initial load
+        self._set_default_range()
+        self.refresh()
+
+    # ------------------------ helpers & actions ------------------------ #
+    def _seed_defaults(self):
+        for name in ["Food", "Coffee", "Books", "Cinema", "Transport", "Rent", "Utilities", "Health", "Other"]:
+            self.db.add_category(name)
+
+    def _set_default_range(self):
+        today = date.today()
+        first = today.replace(day=1)
+        self.start.setDate(QDate(first.year, first.month, first.day))
+        self.end.setDate(QDate(today.year, today.month, today.day))
+
+    def current_range(self):
+        s = self.start.date().toPython()
+        e = self.end.date().toPython()
+        if s > e:
+            s, e = e, s
+        return s, e
+
+    def on_period_click(self):
+        sender = self.sender()
+        today = date.today()
+        if sender is self.btn_month:
+            start = today.replace(day=1)
+        elif sender is self.btn_week:
+            start = today - timedelta(days=6)
+        else:  # day
+            start = today
+        self.start.setDate(QDate(start.year, start.month, start.day))
+        self.end.setDate(QDate(today.year, today.month, today.day))
+        self.refresh()
+
+    # ---- income & expense dialogs ----
+    def add_income(self):
+        dlg = IncomeDialog(self)
+        result = dlg.get()
+        if result:
+            d, amount, src = result
+            self.db.add_income(amount, src, d)
+            self.refresh()
+
+    def add_expense(self):
+        cats = [name for (_id, name) in self.db.all_categories()]
+        dlg = ExpenseDialog(cats, self)
+        result = dlg.get()
+        if result:
+            d, cat, amount, note = result
+            if not cat:
+                QMessageBox.information(self, "Category", "Please enter a category name")
+                return
+            self.db.add_expense(cat, amount, note, d)
+            self.refresh()
+
+    # ---- categories ----
+    def add_category(self):
+        name, ok = QInputDialog.getText(self, "Add category", "Name:")
+        if ok and name.strip():
+            self.db.add_category(name)
+            self.refresh()
+
+    def edit_category(self):
+        cats = [name for (_id, name) in self.db.all_categories()]
+        if not cats:
+            return
+        old, ok = QInputDialog.getItem(self, "Edit category", "Select:", cats, 0, False)
+        if not ok:
+            return
+        new, ok2 = QInputDialog.getText(self, "Rename", f"New name for '{old}':")
+        if ok2 and new.strip():
+            try:
+                self.db.rename_category(old, new)
+            except Exception as e:
+                QMessageBox.warning(self, "Error", str(e))
+            self.refresh()
+
+    # ---- refresh UI ----
+    def refresh(self):
+        self._update_stats()
+        self._populate_cards()
+
+    def _update_stats(self):
+        s, e = self.current_range()
+        total_inc = self.db.total_incomes(s, e)
+        total_exp = self.db.total_expenses(s, e)
+        self.box_income.set_amount(total_inc)
+        self.box_expense.set_amount(total_exp)
+        bal = total_inc - total_exp
+        self.balance_box.setText(
+            f"<div>Balance<br><span style='font-size:18pt'>{bal:,.2f}</span></div>"
+        )
+        if bal >= 0:
+            self.balance_box.setStyleSheet(
+                "border:2px solid #2f8a00; color:#2f8a00; border-radius:16px; padding:12px; font-weight:700;"
+            )
+        else:
+            self.balance_box.setStyleSheet(
+                "border:2px solid #b00020; color:#b00020; border-radius:16px; padding:12px; font-weight:700;"
+            )
+
+    def _populate_cards(self):
+        while self.grid.count():
+            item = self.grid.takeAt(0)
+            w = item.widget()
+            if w:
+                w.setParent(None)
+        s, e = self.current_range()
+        data = self.db.sum_by_category(s, e)
+        cols = 3
+        for i, (name, total) in enumerate(data):
+            r, c = divmod(i, cols)
+            card = CategoryCard(name, total)
+            card.clicked.connect(lambda _=False, n=name: self.show_category_details(n))
+            self.grid.addWidget(card, r, c)
+
+    # ---- click handlers for totals boxes ----
+    def show_all_incomes(self):
+        s, e = self.current_range()
+        dlg = IncomesListDialog(self.db, s, e, self)
+        dlg.exec()
+        self.refresh()  # reflect edits/deletes
+
+
+    def show_all_expenses(self):
+        s, e = self.current_range()
+        rows = self.db.expenses_in_range(s, e)
+        ExpensesListDialog(rows, self).exec()
+
+    def show_category_details(self, category_name: str):
+        s, e = self.current_range()
+        dlg = CategoryExpensesDialog(self.db, category_name, s, e, self)
+        dlg.exec()
+        self.refresh()
+    
+    # --- dataset helpers ---
+    def _category_totals(self):
+        """Expenses by category for current period (labels, values)."""
+        s, e = self.current_range()
+        rows = self.db.sum_by_category(s, e)  # [(name, total)]
+        labels = [n for (n, t) in rows if (t or 0) > 0]
+        values = [t for (n, t) in rows if (t or 0) > 0]
+        return labels, values
+
+    def _income_totals_by_source(self):
+        """Incomes grouped by 'source' for current period (labels, values)."""
+        from collections import defaultdict
+        s, e = self.current_range()
+        rows = self.db.incomes_in_range(s, e)  # [(id, date, amount, source)]
+        agg = defaultdict(float)
+        for (_id, _d, amt, src) in rows:
+            key = src.strip() if src and src.strip() else "Income"
+            agg[key] += float(amt or 0)
+        labels = list(agg.keys())
+        values = [agg[k] for k in labels]
+        return labels, values
+
+    def _selected_dataset(self):
+        return "expenses" if self.dataset_sel.currentIndex() == 0 else "incomes"
+
+    # --- chart launchers ---
+    def open_pie_chart(self):
+        ds = self._selected_dataset()
+        if ds == "expenses":
+            labels, values = self._category_totals()
+            title = "Expenses by Category (%)"
+        else:
+            labels, values = self._income_totals_by_source()
+            title = "Incomes by Source (%)"
+        ChartDialog(title, labels, values, chart="pie", parent=self).exec()
+
+    def open_bar_chart(self):
+        ds = self._selected_dataset()
+        if ds == "expenses":
+            labels, values = self._category_totals()
+            title = "Expenses by Category (Total)"
+        else:
+            labels, values = self._income_totals_by_source()
+            title = "Incomes by Source (Total)"
+        ChartDialog(title, labels, values, chart="bar", parent=self).exec()
+
+
+
+if __name__ == "__main__":
+    import sys
+    app = QApplication(sys.argv)
+    w = Dashboard()
+    w.show()
+    sys.exit(app.exec())
