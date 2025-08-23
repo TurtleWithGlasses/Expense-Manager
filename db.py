@@ -128,6 +128,23 @@ class Database:
             (start.isoformat(), end.isoformat()),
         ).fetchall()
     
+    def expenses_daily_by_category(self, start: date, end: date):
+        """
+        Returns rows of (date_str 'YYYY-MM-DD', category_name, total_amount)
+        for each day/category in the range.
+        """
+        return self.conn.execute(
+            """
+            SELECT date(e.date) AS d, c.name AS category, COALESCE(SUM(e.amount), 0) AS total
+            FROM expenses e
+            JOIN categories c ON c.id = e.category_id
+            WHERE date(e.date) BETWEEN date(?) AND date(?)
+            GROUP BY d, c.name
+            ORDER BY d, c.name
+            """,
+            (start.isoformat(), end.isoformat()),
+        ).fetchall()
+    
     # incomes
     def add_income(self, amount: float, source: str, d: date) -> None:
         self.conn.execute(

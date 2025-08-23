@@ -1,7 +1,7 @@
 from datetime import date, timedelta
 
 from PySide6.QtCore import Qt, QDate
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QIcon
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QDateEdit, QGridLayout, QInputDialog, QMessageBox, QScrollArea,
@@ -11,15 +11,26 @@ from PySide6.QtWidgets import (
 from db import Database
 from dialogs import (
     IncomeDialog, ExpenseDialog,
-    CategoryExpensesDialog, IncomesListDialog, ExpensesListDialog, ChartDialog
+    CategoryExpensesDialog, IncomesListDialog, ExpensesListDialog, ChartDialog,
+    DailyExpensesChartDialog
 )
 from widgets import CategoryCard, StatBox
+from pathlib import Path
+import sys
+
+def resource_path(relative: str) -> str:
+    # Works in dev and inside PyInstaller onefile
+    base = getattr(sys, "_MEIPASS", Path(__file__).parent)
+    return str(Path(base) / relative)
+
+ICON_FILE = resource_path("money_icon.png")
 
 class Dashboard(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Expense Manager — Dashboard")
         self.resize(720, 900)
+        self.setWindowIcon(QIcon(ICON_FILE))
 
         self.db = Database()
         self._seed_defaults()
@@ -118,14 +129,17 @@ class Dashboard(QMainWindow):
         self.dataset_sel.addItems(["Expenses by Category", "Incomes by Source"])
         self.btn_pie = QPushButton("Pie")
         self.btn_bar = QPushButton("Bars")
+        self.btn_daily = QPushButton("Daily")
         self.btn_pie.clicked.connect(self.open_pie_chart)
         self.btn_bar.clicked.connect(self.open_bar_chart)
+        self.btn_daily.clicked.connect(self.open_daily_cart)
 
         header_row.addSpacing(8)
         header_row.addWidget(QLabel("Chart:"))
         header_row.addWidget(self.dataset_sel)
         header_row.addWidget(self.btn_pie)
         header_row.addWidget(self.btn_bar)
+        header_row.addWidget(self.btn_daily)
 
         # Defaults and initial load
         self._set_default_range()
@@ -309,11 +323,27 @@ class Dashboard(QMainWindow):
             title = "Incomes by Source (Total)"
         ChartDialog(title, labels, values, chart="bar", parent=self).exec()
 
-
+    def _daily_expense_pivot(self):
+        """Return (dates[], {category: [values aligned to dates]}) for current range."""
+        s, e = self.current_range()
+        rows = self.db.expenses_daily_by_category(s, e) # (d, cat, total)
+        dates = sorted({d for (d, _cat, _t) in rows})
+        cats = sorted({cat for (_d, cat, _t) in rows})
+        idx = {d: i for i, d in enumerate(dates)}
+        series = {cat: [0.0] * len(dates) for cat in cats}
+        for d, cat, total in rows:
+            series[cat][idx[d]] = float(total or 0)
+        return dates, series
+    
+    def open_daily_cart(self):
+        dates, series = self._daily_expense_pivot()
+        DailyExpensesChartDialog(dates, series, self).exec()
 
 if __name__ == "__main__":
     import sys
     app = QApplication(sys.argv)
+    app.setWindowIcon(QIcon(ICON_FILE))
     w = Dashboard()
+    w.setWindowIcon(QIcon(ICON_FILE))
     w.show()
     sys.exit(app.exec())

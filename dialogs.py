@@ -441,3 +441,34 @@ class ChartDialog(QDialog):
                              ha="center", va="bottom")
         self.fig.tight_layout()
         self.canvas.draw()
+
+class DailyExpensesChartDialog(QDialog):
+    """Stacked bar char: daily expenses per categroy in the selected period."""
+    def __init__(self, dates: list[str], series: dict[str, list[float]], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Daily Expenses by Category")
+        layout = QVBoxLayout(self)
+
+        self.fig = Figure(figsize=(7,4))
+        self.canvas = FigureCanvas(self.fig)
+        layout.addWidget(self.canvas)
+
+        ax = self.fig.add_subplot(111)
+
+        if not dates or not series:
+            ax.text(0.5, 0.5, "No data in range", ha="center", va="center")
+        else:
+            x = list(range(len(dates)))
+            bottoms = [0.0] * len(dates)
+            # Plot each category stacked
+            for cat, vals in series.items():
+                ax.bar(x, vals, bottom=bottoms, label=cat)
+                bottoms = [b + v for b, v in zip(bottoms, vals)]
+            
+            ax.set_xticks(x)
+            ax.set_xticklabels(dates, rotation=45, ha="right")
+            ax.set_ylabel("Amount")
+            ax.legend(loc="upper right", fontsize=8)
+        
+        self.fig.tight_layout()
+        self.canvas.draw()
