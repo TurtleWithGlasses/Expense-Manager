@@ -2,7 +2,7 @@ import sqlite3
 from datetime import date
 from typing import List, Tuple, Optional
 
-DB_FILE = "C:\\Users\\mhmts\\OneDrive\\Databases\\expenses.db"
+DB_FILE = "C:\\Users\\mhmts\\Documents\\Google Drive Backups\\expenses.db"
 
 class Database:
     """SQLite data access layer for categories, expenses and incomes."""
@@ -90,6 +90,11 @@ class Database:
         self.conn.execute("DELETE FROM expenses WHERE id=?", (expense_id,))
         self.conn.commit()
     
+    def delete_category(self, name: str) -> None:
+        """Deletes the category by name. Expenses are removed via ON DELETE CASCADE."""
+        self.conn.execute("DELETE FROM categories WHERE name = ?", (name.strip(),))
+        self.conn.commit()
+    
     def sum_by_category(self, start: date, end: date) -> List[Tuple[str, float]]:
         return self.conn.execute(
             """
@@ -144,6 +149,18 @@ class Database:
             """,
             (start.isoformat(), end.isoformat()),
         ).fetchall()
+    
+    def count_expenses_in_category(self, name:str) -> int:
+        row = self.conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM expenses e
+            JOIN categories c ON c.id = e.category_id
+            WHERE c.name = ?
+            """,
+            (name.strip(),),
+        ).fetchone()
+        return int(row[0] or 0)
     
     # incomes
     def add_income(self, amount: float, source: str, d: date) -> None:

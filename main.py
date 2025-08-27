@@ -133,6 +133,11 @@ class Dashboard(QMainWindow):
         self.btn_pie.clicked.connect(self.open_pie_chart)
         self.btn_bar.clicked.connect(self.open_bar_chart)
         self.btn_daily.clicked.connect(self.open_daily_cart)
+        self.btn_del_cat = QPushButton("Delete Category")
+        self.btn_del_cat.setFixedHeight(32)
+        self.btn_del_cat.setStyleSheet("border:1px solid #999; border-radius:8px; padding:4px 10px; font-weight:600;")
+        self.btn_del_cat.clicked.connect(self.delete_category)
+        header_row.addWidget(self.btn_del_cat)
 
         header_row.addSpacing(8)
         header_row.addWidget(QLabel("Chart:"))
@@ -147,7 +152,7 @@ class Dashboard(QMainWindow):
 
     # ------------------------ helpers & actions ------------------------ #
     def _seed_defaults(self):
-        for name in ["Food", "Coffee", "Books", "Cinema", "Transport", "Rent", "Utilities", "Health", "Other"]:
+        for name in ["Food", "Other"]:
             self.db.add_category(name)
 
     def _set_default_range(self):
@@ -218,6 +223,24 @@ class Dashboard(QMainWindow):
             except Exception as e:
                 QMessageBox.warning(self, "Error", str(e))
             self.refresh()
+    
+    def delete_category(self):
+        cats = [name for (_id, name) in self.db.all_categories()]
+        if not cats:
+            return
+        name, ok = QInputDialog.getItem(self, "Delete category", "Select:", cats, 0, False)
+        if not ok:
+            return
+        
+        n = self.db.count_expenses_in_category(name)
+        msg = (f"Delete category '{name}'?\n\n"
+               f"This will also delete {n} expense(s) in this category.")
+        if QMessageBox.question(self, "Confirm delete", msg,
+                                QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
+            return
+        
+        self.db.delete_category(name)
+        self.refresh()
 
     # ---- refresh UI ----
     def refresh(self):
@@ -342,7 +365,6 @@ class Dashboard(QMainWindow):
 if __name__ == "__main__":
     import sys
     app = QApplication(sys.argv)
-    app.setWindowIcon(QIcon(ICON_FILE))
     w = Dashboard()
     w.setWindowIcon(QIcon(ICON_FILE))
     w.show()
