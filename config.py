@@ -24,7 +24,15 @@ class Config:
             "theme": "light",
             "currency": "USD",
             "date_format": "yyyy-MM-dd",
-            "decimal_places": 2
+            "decimal_places": 2,
+            "database_type": "sqlite",  # "sqlite" or "postgresql"
+            "cloud_database": {
+                "host": "",
+                "port": 5432,
+                "database": "",
+                "user": "",
+                "password": ""
+            }
         }
         
         self.settings = self.load_config()

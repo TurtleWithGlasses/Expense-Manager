@@ -7,12 +7,12 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 from PySide6.QtWidgets import QFileDialog, QMessageBox, QProgressDialog
-from PySide6.QtCore import QThread, pyqtSignal
+from PySide6.QtCore import QThread, Signal
 
 class BackupWorker(QThread):
     """Worker thread for backup operations"""
-    progress = pyqtSignal(int)
-    finished = pyqtSignal(bool, str)
+    progress = Signal(int)
+    finished = Signal(bool, str)
     
     def __init__(self, source_db_path: str, backup_path: str, operation: str):
         super().__init__()

@@ -11,6 +11,8 @@ from updater import check_for_updates
 from version import __version__
 
 from db import Database
+from cloud_db import CloudDatabase
+from config import config
 from dialogs import (
     IncomeDialog, ExpenseDialog,
     CategoryExpensesDialog, IncomesListDialog, ExpensesListDialog, ChartDialog,
@@ -19,6 +21,7 @@ from dialogs import (
 from budget import BudgetDialog
 from export import ExportManager
 from settings import SettingsDialog
+from cloud_settings import CloudDatabaseSettingsDialog
 from backup import BackupManager
 from widgets import CategoryCard, StatBox
 from pathlib import Path
@@ -56,6 +59,9 @@ class Dashboard(QMainWindow):
         act_settings = QAction("Settings...", self)
         act_settings.triggered.connect(self.open_settings)
         file_menu.addAction(act_settings)
+        act_cloud_db = QAction("Cloud Database Settings...", self)
+        act_cloud_db.triggered.connect(self.open_cloud_settings)
+        file_menu.addAction(act_cloud_db)
         
         # Tools menu
         tools_menu = menubar.addMenu("Tools")
@@ -72,7 +78,7 @@ class Dashboard(QMainWindow):
         # Optional: auto-check once, 2s after launch (quiet)
         QTimer.singleShot(2000, lambda: check_for_updates(parent=self, silent=True))
 
-        self.db = Database()
+        self.db = self._initialize_database()
         self._seed_defaults()
 
         root = QWidget()
@@ -200,6 +206,35 @@ class Dashboard(QMainWindow):
         self.refresh()
 
     # ------------------------ helpers & actions ------------------------ #
+    def _initialize_database(self):
+        """Initialize database based on configuration"""
+        db_type = config.get("database_type", "sqlite")
+        
+        if db_type == "postgresql":
+            cloud_config = config.get("cloud_database", {})
+            if not all([cloud_config.get("host"), cloud_config.get("database"), 
+                       cloud_config.get("user"), cloud_config.get("password")]):
+                # Fallback to SQLite if cloud config is incomplete
+                return Database()
+            
+            try:
+                return CloudDatabase(
+                    db_type="postgresql",
+                    host=cloud_config["host"],
+                    port=cloud_config.get("port", 5432),
+                    database=cloud_config["database"],
+                    user=cloud_config["user"],
+                    password=cloud_config["password"]
+                )
+            except Exception as e:
+                from PySide6.QtWidgets import QMessageBox
+                QMessageBox.warning(self, "Database Error", 
+                                  f"Failed to connect to cloud database: {e}\n\n"
+                                  "Falling back to local SQLite database.")
+                return Database()
+        else:
+            return Database()
+    
     def _seed_defaults(self):
         for name in ["Food", "Other"]:
             self.db.add_category(name)
@@ -425,6 +460,15 @@ class Dashboard(QMainWindow):
         dialog = SettingsDialog(self)
         if dialog.exec() == QDialog.Accepted:
             # Refresh the UI if needed
+            self.refresh()
+    
+    def open_cloud_settings(self):
+        """Open cloud database settings dialog"""
+        dialog = CloudDatabaseSettingsDialog(self)
+        if dialog.exec() == QDialog.Accepted:
+            # Reinitialize database with new settings
+            self.db.close() if hasattr(self.db, 'close') else None
+            self.db = self._initialize_database()
             self.refresh()
     
     def open_budget_manager(self):

@@ -1,0 +1,5 @@
+{
+  "version": "9.9.9",
+  "installer_url": "http://127.0.0.1:9000/ExpenseManagerSetup.exe",
+  "notes": "Local test build."
+}

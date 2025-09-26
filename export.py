@@ -8,12 +8,12 @@ from pathlib import Path
 from typing import List, Tuple, Dict, Any
 import pandas as pd
 from PySide6.QtWidgets import QFileDialog, QMessageBox, QProgressDialog
-from PySide6.QtCore import QThread, pyqtSignal
+from PySide6.QtCore import QThread, Signal
 
 class ExportWorker(QThread):
     """Worker thread for data export to prevent UI freezing"""
-    progress = pyqtSignal(int)
-    finished = pyqtSignal(bool, str)
+    progress = Signal(int)
+    finished = Signal(bool, str)
     
     def __init__(self, db, start_date: date, end_date: date, export_type: str, file_path: str):
         super().__init__()
